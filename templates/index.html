@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Attendance System</title>
+</head>
+<body>
+  <h1>📸 Smart Attendance System</h1>
+
+  <video id="video" width="640" height="480" autoplay></video><br>
+  <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+  <div id="result"></div>
+
+  <h2>Take Attendance</h2>
+  <button id="capture">Take Attendance</button>
+
+  <h2>Register New Face</h2>
+  <input type="text" id="regName" placeholder="Enter Name">
+  <button id="registerBtn">Register Face</button>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const result = document.getElementById('result');
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => { video.srcObject = stream; });
+
+    function sendToServer(url, payload) {
+      fetch(url, {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => { result.innerHTML = JSON.stringify(data); });
+    }
+
+    // Attendance capture
+    document.getElementById('capture').addEventListener('click', () => {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL('image/png');
+      sendToServer('/upload', { image: data });
+    });
+
+    // Register new face (5 frames until face detected)
+    document.getElementById('registerBtn').addEventListener('click', () => {
+      const name = document.getElementById('regName').value.trim();
+      if (!name) { alert("Enter a name!"); return; }
+
+      const frames = [];
+      const interval = setInterval(() => {
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = canvas.to
