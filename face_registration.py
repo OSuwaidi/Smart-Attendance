@@ -18,8 +18,7 @@ def save_face_data(name, faces_to_save):
         faces_data = np.asarray(faces_to_save)
         faces_data = faces_data.reshape(len(faces_to_save), -1)
 
-        if not os.path.exists('Data'):
-            os.makedirs('Data')
+        os.makedirs('Data', exist_ok=True)
 
         # Handle names file
         try:

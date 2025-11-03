@@ -86,11 +86,11 @@ def search_gallery(emb_query, emb_gallery, labels_gallery, topk=1, threshold=Non
 
 def recognize_unlabeled_faces_image(
     backbone,
-    gallery_npz,
+    gallery_npz,  # (N, D) Embeddings of each figure in gallery
     class_names,
     detector = MTCNNAdapter(),       # Your detector object, e.g., RetinaFacePyPIAdapter
     image_path=None,     # Path to test image (or use image_array)
-    image_array=None,    # Alternatively, BGR np.array (OpenCV format)
+    image_array=None,    # Alternatively, **BGR** np.array (OpenCV format)
     device='cuda',
     crop_size=(112, 112),
     grayscale=False,
@@ -112,16 +112,11 @@ def recognize_unlabeled_faces_image(
         threshold: float, min cosine similarity to accept as a match.
     """
 
-    # Load gallery
-    emb_gallery = gallery_npz   # (N, D) Embeddings of each figure in gallary
-
-    class_names = class_names
-
     # Prepare image
     if image_array is not None:
         img = image_array.copy()
     else:
-        img = cv2.imread(image_path)
+        img = cv2.imread(image_path)  # BGR
         if img is None:
             raise ValueError(f"Could not read image: {image_path}")
     orig_img = img.copy()
@@ -159,7 +154,7 @@ def recognize_unlabeled_faces_image(
         # === Use search_gallery to get best matches ===
         match_results = search_gallery(
             emb_query=emb_query,
-            emb_gallery=emb_gallery,
+            emb_gallery=gallery_npz,
             labels_gallery=labels_gallery,
             topk=topk,
             threshold=threshold

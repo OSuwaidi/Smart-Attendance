@@ -1,34 +1,8 @@
-# attendance_system.py
-
-import pickle
-import os
 import csv
 from datetime import datetime
-from sklearn.neighbors import KNeighborsClassifier
 from pathlib import Path
-import warnings
 from zoneinfo import ZoneInfo
 
-warnings.filterwarnings("ignore")
-
-def load_model():
-    """
-    Loads face data and trains a KNN classifier.
-    Returns a tuple: (classifier, error_message).
-    """
-    try:
-        with open('Data/names.pkl', 'rb') as w:
-            LABELS = pickle.load(w)
-        with open('Data/faces_data.pkl', 'rb') as f:
-            FACES = pickle.load(f)
-
-        knn = KNeighborsClassifier(n_neighbors=5)
-        knn.fit(FACES, LABELS)
-        # ** FIX: Return the model and None for the error message **
-        return knn, None
-    except (FileNotFoundError, EOFError, pickle.UnpicklingError) as e:
-        # Return None for the model and the error message string
-        return None, f"Error loading model data: {e}. Please register a face first."
 
 def mark_attendance(name):
     """
