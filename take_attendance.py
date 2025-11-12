@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 warnings.filterwarnings("ignore")
 
+
 def load_model():
     """
     Loads face data and trains a KNN classifier.

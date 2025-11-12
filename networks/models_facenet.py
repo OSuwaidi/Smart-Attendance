@@ -237,6 +237,52 @@ class MobileFaceNet(Module):
         out = self.bn(out)
         return l2_norm(out)
 
+class MobileFaceNetv2(Module):
+    def __init__(self, embedding_size):
+        super(MobileFaceNetv2, self).__init__()
+        self.conv1 = Conv_block(3, 4, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
+        self.conv2_dw = Conv_block(4, 4, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=4)
+        self.conv_23 = Depth_Wise(4, 4, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=4)
+        self.conv_3 = Residual(4, num_block=4, groups=4, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_34 = Depth_Wise(4, 12, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=4)
+        self.conv_4 = Residual(12, num_block=6, groups=12, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_45 = Depth_Wise(12, 12, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=12)
+        self.conv_5 = Residual(12, num_block=2, groups=12, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_6_sep = Conv_block(12, 12, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
+        self.conv_6_dw = Linear_block(12, 12, groups=12, kernel=(7,7), stride=(1, 1), padding=(0, 0))
+        self.conv_6_flatten = Flatten()
+        self.linear = Linear(12, embedding_size, bias=False)
+        self.bn = BatchNorm1d(embedding_size)
+    
+    def forward(self, x):
+        out = self.conv1(x)
+
+        out = self.conv2_dw(out)
+
+        out = self.conv_23(out)
+
+        out = self.conv_3(out)
+        
+        out = self.conv_34(out)
+
+        out = self.conv_4(out)
+
+        out = self.conv_45(out)
+
+        out = self.conv_5(out)
+
+        out = self.conv_6_sep(out)
+
+        out = self.conv_6_dw(out)
+
+        out = self.conv_6_flatten(out)
+
+        out = self.linear(out)
+
+        out = self.bn(out)
+        return l2_norm(out)
+
+
 ##################################  Arcface head #############################################################
 
 class Arcface(Module):

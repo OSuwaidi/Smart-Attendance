@@ -1,3 +1,4 @@
+
 import os
 import cv2
 import torch
@@ -7,7 +8,6 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from natsort import natsorted
-from utils.utils import MTCNNAdapter
 
 def extract_embeddings(backbone, data_dir, device, crop_size=(112,112), grayscale=False, batch_size=32, out_path="face_gallery.npz"):
     """
@@ -32,6 +32,8 @@ def extract_embeddings(backbone, data_dir, device, crop_size=(112,112), grayscal
 
     for label, cls in enumerate(class_names):
         cls_dir = os.path.join(data_dir, cls)
+        if not os.path.isdir(cls_dir):
+            continue
         for fname in os.listdir(cls_dir):
             if fname.lower().endswith(('jpg','png','jpeg','bmp')):
                 img_paths.append(os.path.join(cls_dir, fname))
@@ -87,35 +89,33 @@ def search_gallery(emb_query, emb_gallery, labels_gallery, topk=1, threshold=Non
 def recognize_unlabeled_faces_image(
     backbone,
     gallery_npz,
-    class_names,
-    detector = MTCNNAdapter(),       # Your detector object, e.g., RetinaFacePyPIAdapter
-    image_path=None,     # Path to test image (or use image_array)
-    image_array=None,    # Alternatively, BGR np.array (OpenCV format)
+    face_detector,
+    image_path=None,
+    image_array=None,
     device='cuda',
     crop_size=(112, 112),
     grayscale=False,
     mean=None, std=None,
     topk=1,
-    threshold=None,      # Only report matches above this similarity
+    threshold=None,
     show=True,
     save_path=None,
 ):
     """
     Recognize faces in an unlabeled image using gallery embeddings.
-
-    Args:
-        backbone: trained backbone model.
-        gallery_npz: path to npz file with keys: 'embeddings', 'labels', 'paths'
-        face_detector: object with .detect_faces()
-        image_path/image_array: BGR image as path or numpy array. *(test)
-        topk: int, how many closest classes to show.
-        threshold: float, min cosine similarity to accept as a match.
+    Returns:
+        recognized_names: list of labels (may be empty if no face)
+        face_bboxes: list of bounding boxes
     """
-
     # Load gallery
-    emb_gallery = gallery_npz   # (N, D) Embeddings of each figure in gallary
+    gallery = np.load(gallery_npz)
+    emb_gallery = gallery['embeddings']
+    labels_gallery = gallery['labels']
+    paths_gallery = gallery['paths']
+    print(f"Loaded gallery: {emb_gallery.shape[0]} faces, {emb_gallery.shape[1]}D embeddings")
 
-    class_names = class_names
+    # Get class names
+    class_names = natsorted(list(set([os.path.basename(os.path.dirname(p)) for p in paths_gallery])))
 
     # Prepare image
     if image_array is not None:
@@ -127,9 +127,14 @@ def recognize_unlabeled_faces_image(
     orig_img = img.copy()
 
     # Detect faces
-    face_bboxes = detector.detect_faces(img)
+    face_bboxes = face_detector.detect_faces(img)
 
-    # Preprocessing transform
+    # ⚠️ 如果没检测到人脸，提前返回 None
+    if face_bboxes is None or len(face_bboxes) == 0:
+        print("No faces detected.")
+        return None, None
+
+    # Preprocess
     tr = []
     if grayscale:
         tr.append(transforms.Grayscale(num_output_channels=3))
@@ -145,18 +150,20 @@ def recognize_unlabeled_faces_image(
     backbone.eval()
     backbone.to(device)
 
+    recognized_names = []
+
     for bbox in face_bboxes:
         x1, y1, x2, y2 = map(int, bbox)
         face_img = img[y1:y2, x1:x2]
         if face_img.shape[0] == 0 or face_img.shape[1] == 0:
             continue
+
         face_pil = Image.fromarray(cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB))
         face_tensor = preprocess(face_pil).unsqueeze(0).to(device)
 
         with torch.no_grad():
             emb_query = backbone(face_tensor).cpu().numpy().reshape(1, -1)
 
-        # === Use search_gallery to get best matches ===
         match_results = search_gallery(
             emb_query=emb_query,
             emb_gallery=emb_gallery,
@@ -164,15 +171,17 @@ def recognize_unlabeled_faces_image(
             topk=topk,
             threshold=threshold
         )
-        # Take the best match for annotation
+
         match_label, match_sim = match_results[0]
         if match_label == 'Unknown':
+            match_class = 'Unknown'
             label_str = "Unknown"
         else:
             match_class = class_names[match_label]
             label_str = f"{match_class} ({match_sim:.2f})"
-        print(label_str)
-        # Draw box/label
+        recognized_names.append(label_str)
+
+        # Draw box
         cv2.rectangle(orig_img, (x1, y1), (x2, y2), (0,255,0), 2)
         cv2.putText(orig_img, label_str, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
 
@@ -182,10 +191,16 @@ def recognize_unlabeled_faces_image(
         plt.imshow(cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB))
         plt.axis('off')
         plt.show()
+
     if save_path is not None:
         cv2.imwrite(save_path, orig_img)
         print(f"Saved result to {save_path}")
-    return match_label
+
+    # ✅ 如果什么都没识别到，也返回 None
+    if len(recognized_names) == 0:
+        return None, None
+
+    return recognized_names, face_bboxes
 
 
 def recognize_unlabeled_faces_video(

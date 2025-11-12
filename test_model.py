@@ -4,8 +4,8 @@ import torch
 from matplotlib import pyplot as plt
 
 from data_loader import get_data_loader
-
-from networks.models_facenet import Backbone, MobileFaceNet, Arcface, CosFace 
+from utils.utils import MTCNNAdapter
+from networks.models_facenet import Backbone, MobileFaceNetv2, Arcface, CosFace 
 from generate_embeddings import extract_embeddings, recognize_unlabeled_faces_image, recognize_unlabeled_faces_video, search_gallery
 
 import warnings
@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 def get_argparser(use=False):
     parser = argparse.ArgumentParser(description="Face Recognition Training Configurations")
 
-    parser.add_argument('--root_dir', type=str, default=r"C:\Users\qhd\Desktop\face\CASIA_WebFace_preprocessed", help='Root directory for data')
+    parser.add_argument('--root_dir', type=str, default=r"C:\Users\qhd\Desktop\face\toy")#r"C:\Users\qhd\Desktop\face\CASIA_WebFace_preprocessed", help='Root directory for data')
     parser.add_argument('--grayscale', action='store_true', help='Use grayscale images (default: False)')
     parser.add_argument('--aug_type', type=str, default='strong', choices=['standard', 'strong', 'none'], help='Augmentation type')
     parser.add_argument('--loss_type', type=str, default='smooth_ce', choices=['ce', 'smooth_ce'], help='Loss function')
@@ -48,7 +48,7 @@ def load_model_head_only(args, num_classes, snapshot_path=None, device='cuda'):
     """
     # --- Select backbone ---
     if args.model_name.lower() == "mobilefacenet":
-        backbone = MobileFaceNet(embedding_size=args.embedding_size).to(device)
+        backbone = MobileFaceNetv2(embedding_size=args.embedding_size).to(device)
     else:
         backbone = Backbone(num_layers=50, drop_ratio=0.4, mode='ir_se').to(device)
 
@@ -68,7 +68,7 @@ def load_model_head_only(args, num_classes, snapshot_path=None, device='cuda'):
 
     # Find checkpoint (by convention: contains 'best_model_epoch')
     candidates = [f for f in os.listdir(snapshot_path) if 'best_model_epoch' in f]
-
+    
     if not candidates:
         raise RuntimeError(f"No best_model_epoch checkpoint found in {snapshot_path}")
     checkpoint_path = os.path.join(snapshot_path, sorted(candidates)[-1])
@@ -87,16 +87,15 @@ def extract_last_number(filename):
     nums = re.findall(r"[-+]?\d*\.\d+|\d+", filename)
     return float(nums[-1]) if nums else -1.0
 
-def load_model_last_block(args, num_classes=1000, phase='head_only', snapshot_path=None, device='cuda'):
+def load_model_last_block(args, num_classes, phase='head_only', snapshot_path=None, device='cuda'):
     """
     Load backbone, classifier head, and weights from snapshot.
     Sets proper requires_grad flags for backbone/classifier according to phase.
     Returns backbone, classifier, and loaded epoch.
     """
     # --- Select backbone ---
-    args = get_argparser()
     if args.model_name.lower() == "mobilefacenet":
-        backbone = MobileFaceNet(embedding_size=args.embedding_size).to(device)
+        backbone = MobileFaceNetv2(embedding_size=args.embedding_size).to(device)
         backbone_last_block = [
             backbone.conv_5, backbone.conv_6_sep, backbone.conv_6_dw,
             backbone.conv_6_flatten, backbone.linear, backbone.bn
@@ -163,9 +162,10 @@ def load_model_last_block(args, num_classes=1000, phase='head_only', snapshot_pa
     return backbone, classifier, checkpoint.get('epoch', None)
 
 if __name__ == "__main__":
-
+    import time
+    beg  = time.time()
     args = get_argparser()
-
+    
     test_loader_, meta_data = get_data_loader(
         root_dir=args.root_dir,
         train=True,
@@ -175,17 +175,22 @@ if __name__ == "__main__":
         aug_type=args.aug_type,
         shuffle=False,
     )
+    end = time.time()
+    print(end-beg)
     """Trained including Challenging Faces"""
-    snapshot_path = r"C:\Users\qhd\Desktop\face\FaceNet-main\FaceNet-main\checkpoints\20251020_091525__model_mobilefacenet__head_arcface__opt_adamw__phase_head_only"
-    
+    snapshot_path = r".\checkpoints\20251111_150701__model_mobilefacenet__head_arcface__opt_adamw__phase_full"
+    beg  = time.time()
     backbone, _, _ = load_model_last_block(
         args,
         num_classes=meta_data['num_classes'],
         snapshot_path=snapshot_path,
         device='cuda' if torch.cuda.is_available() else 'cpu',
     )
+    end = time.time()
+    print(end-beg)
     color = 'gray' if args.grayscale else 'rgb'
-    embedding_path = snapshot_path + f"/{args.model_name}_{args.classifier_type}_{args.phase}_{color}_face_gallery.npz"
+    # embedding_path = snapshot_path + f"/{args.model_name}_{args.classifier_type}_{args.phase}_{color}_face_gallery.npz"
+    embedding_path = r'.\checkpoints\20251111_150701__model_mobilefacenet__head_arcface__opt_adamw__phase_full\gallary.npz'
     if not os.path.exists(embedding_path):
         extract_embeddings(
             backbone=backbone,
@@ -197,51 +202,49 @@ if __name__ == "__main__":
             out_path=embedding_path,
         )
 
-    test_samples_dir = r'C:\Users\qhd\Desktop\face\lfw\lfw\Zhang_Ziyi'# r"C:\Users\qhd\Desktop\face\CASIA_WebFace_preprocessed\132"
-    # -- Detector
+    test_samples_dir =  r"C:\Users\qhd\Desktop\face\toy\Haodi"
+    detector = MTCNNAdapter()
     
-    
-    # Loop through all images in the test_samples directory
-    for image_file in os.listdir(test_samples_dir):
-        if image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
-            image_path = os.path.join(test_samples_dir, image_file)
-            name = os.path.basename(image_path).split('.')[0]
-            print(f"Processing image: {name}")
+    # for image_file in os.listdir(test_samples_dir):
+    #     if image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+    #         image_path = os.path.join(test_samples_dir, image_file)
+    #         name = os.path.basename(image_path).split('.')[0]
+    #         print(f"Processing image: {name}")
             
-            # -- Call recognition
-            recognize_unlabeled_faces_image(
-                backbone=backbone,
-                gallery_npz=embedding_path,    # Path to extracted gallery embeddings
-                image_path=image_path,   # or image_array=...
-                device='cuda' if torch.cuda.is_available() else 'cpu',
-                crop_size=args.crop_size,
-                grayscale=args.grayscale,
-                topk=1,         # You can increase for more candidates
-                threshold=0.3,  # Optionally set a similarity threshold for "Unknown"
-                show=True,
-                save_path=snapshot_path + f"/{name}_{args.model_name}_{args.classifier_type}_annotated_test.jpg"
-            )
-
-    # test_video_dir = "./test_samples"
-    # for video_file in os.listdir(test_video_dir):
-    #     if video_file.lower().endswith(('.mp4', '.avi', '.mov')):
-    #         video_path = os.path.join(test_video_dir, video_file)
-    #         video_name = os.path.basename(video_path).split('.')[0]
-    #         print(f"Processing video: {video_name}")
-    
-    #         recognize_unlabeled_faces_video(
+    #         recognize_unlabeled_faces_image(
     #             backbone=backbone,
-    #             gallery_npz=embedding_path,
+    #             gallery_npz=embedding_path,    # Path to extracted gallery embeddings
     #             face_detector=detector,
-    #             video_path=video_path,
+    #             image_path=image_path,   # or image_array=...
     #             device='cuda' if torch.cuda.is_available() else 'cpu',
-    #             crop_size=(112,112),
-    #             topk=1,
-    #             threshold=0.4,
-    #             show=False,
-    #             save_path=snapshot_path + f"/{video_name}_{args.model_name}_{args.classifier_type}_annotated_video.mp4",
-    #             search_gallery=search_gallery
+    #             crop_size=args.crop_size,
+    #             grayscale=args.grayscale,
+    #             topk=1,         # You can increase for more candidates
+    #             threshold=0.3,  # Optionally set a similarity threshold for "Unknown"
+    #             show=True,
+    #             save_path=snapshot_path + f"/{name}_{args.model_name}_{args.classifier_type}_annotated_test.jpg"
     #         )
+
+    test_video_dir = r"C:\Users\qhd\Desktop\face\toy"
+    for video_file in os.listdir(test_video_dir):
+        if video_file.lower().endswith(('.mp4', '.avi', '.mov')):
+            video_path = os.path.join(test_video_dir, video_file)
+            video_name = os.path.basename(video_path).split('.')[0]
+            print(f"Processing video: {video_name}")
+    
+            recognize_unlabeled_faces_video(
+                backbone=backbone,
+                gallery_npz=embedding_path,
+                face_detector=detector,
+                video_path=video_path,
+                device='cuda' if torch.cuda.is_available() else 'cpu',
+                crop_size=(112,112),
+                topk=1,
+                threshold=0.4,
+                show=False,
+                save_path=snapshot_path + f"/{video_name}_{args.model_name}_{args.classifier_type}_annotated_video.mp4",
+                search_gallery=search_gallery
+            )
 
 
 # python test_model.py --classifier_type combined
